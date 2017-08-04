@@ -84,7 +84,7 @@ int funcation (void *args)
     char buf[SIZE];
     memset (buf , '\0', SIZE);
 
-    printf ("start new thread to receive data on fd :%d\n", sockfd);
+    printf ("Thread handling data on fd :%d\n", sockfd);
 
     //由于我将epoll的工作模式设置为ET模式，所以就要用一个循环来读取数据，防止数据没有读完，而丢失。
     while (1)
@@ -105,14 +105,14 @@ int funcation (void *args)
         }
         else
         {
-            printf (" read data is %s\n", buf);
-            sleep (5);
+            printf ("Read data is %s\n", buf);
+            //sleep (5);
             groupchat (epollfd , sockfd, buf );
         }
 
 
     }
-    printf ("end thread receive  data on fd : %d\n", sockfd);
+    printf ("End thread receive  data on fd : %d\n", sockfd);
 
 }
 //这是重新注册，将文件描述符从可写变成可读
@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
 {
     struct sockaddr_in  address ;
     const char *ip = "127.0.0.1";
-    int port  = 8086 ;
+    int port  = 7777 ;
 
     memset (&address , 0 , sizeof (address));
     address.sin_family = AF_INET ;
@@ -238,9 +238,11 @@ int main(int argc, char *argv[])
                 user_client[connfd].sockfd = connfd ;
                 memset (&user_client[connfd].client_buf , '\0', sizeof (user_client[connfd].client_buf));
                 addfd (epollfd , connfd , 1);//将新的套接字加入到内核事件表里面。
+                printf ("New Connection\n");
             }
             else if (events[i].events & EPOLLIN)
             {
+                printf("EPOLLIN\n");
                 struct fd    fds_for_new_worker ;
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;
@@ -248,7 +250,7 @@ int main(int argc, char *argv[])
                 thpool_add_work (thpool, (void*)funcation ,&fds_for_new_worker);//将任务添加到工作队列中
             }else if (events[i].events & EPOLLOUT)
             {
-
+                printf("EPOLLOUT\n");
                 struct  fd   fds_for_new_worker ;
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;

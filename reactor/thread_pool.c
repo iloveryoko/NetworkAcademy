@@ -55,7 +55,6 @@ thpool_t * thpool_init (int threadsN){
 
 
     for (t = 0 ; t < threadsN ; t++){
-        printf ("Create thread %d in pool\n", t);
 
         //第四个参数是传递给函数指针的一个参数，这个函数指针就是我们所说的线程指针
         if (pthread_create (&(tp_p->threads[t]) , NULL , (void *) thpool_thread_do , (void *)tp_p)){
@@ -65,6 +64,8 @@ thpool_t * thpool_init (int threadsN){
             free (tp_p->jobqueue);
             free (tp_p);
         }
+
+        printf ("Created thread [%d] : [%lx] in pool\n", t, tp_p->threads[t]);
     }
     return  tp_p ;
 }
@@ -81,9 +82,11 @@ void thpool_thread_do (thpool_t *tp_p){
     {
         if (sem_wait (tp_p->jobqueue->queueSem))  //如果工作队列中没有工作，那么所有的线程都将在这里阻塞，当他调用成功的时候，信号量-1
         {
-            fprintf(stderr , "Waiting for semaphore\n");
+            fprintf(stderr , "Waiting for semaphore error\n");
             exit (1);
         }
+
+        printf("Thread [%lx] peeking job\n", pthread_self());
 
         if (thpool_keepalive)
         {
