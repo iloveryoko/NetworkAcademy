@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include "thread_pool.h"
+#include <getopt.h>
 //#include "thread_pool.c"
 #define MAX_EVENT_NUMBER  1000
 #define SIZE    1024
@@ -187,32 +188,90 @@ int addfd (int epollfd , int fd , int oneshot)
 
 int main(int argc, char *argv[])
 {
-    struct sockaddr_in  address ;
+    struct sockaddr_in address ;
     const char *ip = "127.0.0.1";
     int port  = 7777 ;
+    int ch;
 
-    memset (&address , 0 , sizeof (address));
-    address.sin_family = AF_INET ;
-    inet_pton (AF_INET ,ip , &address.sin_addr);
-    address.sin_port =htons( port) ;
+    int server_client = 1;
+    char *arg_ip = NULL;
+    char *arg_port = NULL;
+    char short_opts[] = "sc";
+    char *long_opt_arg = NULL;
+    struct option long_opts[] = {
+            {"server", no_argument, &server_client, 1},    // getopt_long返回值为0，server保存为1
+            {"client", no_argument, &server_client, 2},    // getopt_long返回值为0
+            {"host", required_argument, 0, 'h'},  // getopt_long返回值为0,必须有参数
+            {"port", required_argument, 0, 'p'},
+            {NULL, 0, NULL, 0}
+    };
+
+    while((ch = getopt_long (argc, argv, short_opts, long_opts, NULL)) != -1)
+    {
+        switch (ch)
+        {
+            case 0:
+                break;
+            case 'h':
+                arg_ip = strdup(optarg);
+                break;
+            case 'p':
+                arg_port = strdup(optarg);
+                break;
+            case '?':
+                printf("Unknown option: %c\n",(char)optopt);
+                break;
+        }
+    }
+
+    if (arg_ip != NULL) {
+        ip = arg_ip;
+    }
+
+    if (arg_port != NULL) {
+        int arg_port_int = atoi(arg_port);
+        if (arg_port_int > 0) {
+            port = arg_port_int;
+        }
+    }
+
+    int sock_fd = 0;
+    if (server_client == 1) {
+        memset (&address , 0 , sizeof (address));
+        address.sin_family = AF_INET ;
+        inet_pton (AF_INET ,ip , &address.sin_addr);
+        address.sin_port =htons( port) ;
 
 
-    int listenfd = socket (AF_INET, SOCK_STREAM, 0);
-    assert (listen >=0);
-    int reuse = 1;
-    setsockopt (listenfd , SOL_SOCKET , SO_REUSEADDR , &reuse , sizeof (reuse)); //端口重用，因为出现过端口无法绑定的错误
-    int ret = bind (listenfd, (struct sockaddr*)&address , sizeof (address));
-    assert (ret >=0 );
+        sock_fd = socket (AF_INET, SOCK_STREAM, 0);
+        assert (listen >=0);
+        int reuse = 1;
+        setsockopt (sock_fd , SOL_SOCKET , SO_REUSEADDR , &reuse , sizeof (reuse)); //端口重用，因为出现过端口无法绑定的错误
+        int ret = bind (sock_fd, (struct sockaddr*)&address , sizeof (address));
+        assert (ret >=0 );
 
-    ret = listen (listenfd , 5);
-    assert (ret >=0);
-
+        ret = listen (sock_fd , 5);
+        assert (ret >=0);
+    } else if (server_client == 2) {
+        sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock_fd == -1) {
+                printf("socket create error\n");
+        }
+        //设置一个socket地址结构client_addr,代表客户机internet地址, 端口
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = inet_addr(ip);
+        address.sin_port = htons(port);
+                //把socket和socket地址结构联系起来
+        if( connect(sock_fd, (struct sockaddr*)&address, sizeof(address)) == -1) {
+            printf("socket connect error\n");
+        }
+    }
 
     struct epoll_event events[MAX_EVENT_NUMBER];
 
     int epollfd = epoll_create (5); //创建内核事件描述符表
     assert (epollfd != -1);
-    addfd (epollfd , listenfd, 0);
+    addfd (epollfd , sock_fd, 0);
 
     thpool_t  *thpool ;  //线程池
     thpool = thpool_init (5) ; //线程池的一个初始化
@@ -230,11 +289,11 @@ int main(int argc, char *argv[])
         {
             int sockfd = events[i].data.fd ;
 
-            if (sockfd == listenfd)
+            if (sockfd == sock_fd)
             {
                 struct sockaddr_in client_address ;
                 socklen_t  client_length = sizeof (client_address);
-                int connfd = accept (listenfd , (struct sockaddr*)&client_address,&client_length);
+                int connfd = accept (sock_fd , (struct sockaddr*)&client_address,&client_length);
                 user_client[connfd].sockfd = connfd ;
                 memset (&user_client[connfd].client_buf , '\0', sizeof (user_client[connfd].client_buf));
                 addfd (epollfd , connfd , 1);//将新的套接字加入到内核事件表里面。
@@ -262,6 +321,6 @@ int main(int argc, char *argv[])
     }
 
     thpool_destory (thpool);
-    close (listenfd);
+    close (sock_fd);
     return EXIT_SUCCESS;
 }
