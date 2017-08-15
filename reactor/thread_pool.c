@@ -140,6 +140,7 @@ int thpool_add_work (thpool_t *tp_p ,void * (*function_p )(void *), void *arg_p)
 
 void thpool_destory (thpool_t *tp_p){
     int    t ;
+    printf("thpool_destory\n");
 
     thpool_keepalive = 0 ;  //让所有的线程运行的线程都退出循环
 

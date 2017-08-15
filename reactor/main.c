@@ -36,7 +36,7 @@ struct user user_client[MAX];  //定义一个全局的客户数据表
 
 
 //由于epoll设置的EPOLLONESHOT模式，当出现errno =EAGAIN,就需要重新设置文件描述符（可读）
-void reset_oneshot (int epollfd , int fd)
+void reset_epoll_in_oneshot(int epollfd, int fd)
 {
     struct epoll_event event ;
     event.data.fd = fd ;
@@ -45,7 +45,7 @@ void reset_oneshot (int epollfd , int fd)
 
 }
 //向epoll内核事件表里面添加可写的事件
-int addreadfd (int epollfd , int fd , int oneshot)
+int add_epoll_out_fd(int epollfd, int fd, int oneshot)
 {
     struct epoll_event  event ;
     event.data.fd = fd ;
@@ -72,13 +72,13 @@ int groupchat (int epollfd , int sockfd , char *buf)
             continue ;
         }
         strncpy (user_client[i].client_buf ,buf , strlen (buf)) ;
-        addreadfd (epollfd , user_client[i].sockfd , 1);
+        add_epoll_out_fd(epollfd, user_client[i].sockfd, 1);
 
     }
 
 }
 //接受数据的函数，也就是线程的回调函数
-int funcation (void *args)
+int server_epoll_in_thread_func(void *args)
 {
     int sockfd = ((struct fd*)args)->sockfd ;
     int epollfd =((struct fd*)args)->epollfd;
@@ -100,7 +100,7 @@ int funcation (void *args)
         {
             if (errno == EAGAIN)
             {
-                reset_oneshot (epollfd, sockfd);  //重新设置（上面已经解释了）
+                reset_epoll_in_oneshot(epollfd, sockfd);  //重新设置（上面已经解释了）
                 break;
             }
         }
@@ -117,7 +117,7 @@ int funcation (void *args)
 
 }
 //这是重新注册，将文件描述符从可写变成可读
-int addagainfd (int epollfd , int fd)
+int mod_fd_epoll_out2in(int epollfd, int fd)
 {
     struct epoll_event event;
     event.data.fd = fd ;
@@ -137,7 +137,7 @@ int reset_read_oneshot (int epollfd , int sockfd)
 }
 
 //发送读的数据
-int readfun (void *args)
+int epoll_out_thread_func(void *args)
 {
     int sockfd = ((struct fd *)args)->sockfd ;
     int epollfd= ((struct fd*)args)->epollfd ;
@@ -157,7 +157,7 @@ int readfun (void *args)
         return -1;
     }
     memset (&user_client[sockfd].client_buf , '\0', sizeof (user_client[sockfd].client_buf));
-    addagainfd (epollfd , sockfd);//重新设置文件描述符
+    mod_fd_epoll_out2in(epollfd, sockfd);//重新设置文件描述符
 
 }
 //套接字设置为非阻塞
@@ -169,7 +169,7 @@ int setnoblocking (int fd)
     return old_option ;
 }
 
-int addfd (int epollfd , int fd , int oneshot)
+int add_epoll_in_fd(int epollfd, int fd, int oneshot)
 {
     struct epoll_event  event;
     event.data.fd = fd ;
@@ -271,7 +271,7 @@ int main(int argc, char *argv[])
 
     int epollfd = epoll_create (5); //创建内核事件描述符表
     assert (epollfd != -1);
-    addfd (epollfd , sock_fd, 0);
+    add_epoll_in_fd(epollfd, sock_fd, 0);
 
     thpool_t  *thpool ;  //线程池
     thpool = thpool_init (5) ; //线程池的一个初始化
@@ -296,7 +296,7 @@ int main(int argc, char *argv[])
                 int connfd = accept (sock_fd , (struct sockaddr*)&client_address,&client_length);
                 user_client[connfd].sockfd = connfd ;
                 memset (&user_client[connfd].client_buf , '\0', sizeof (user_client[connfd].client_buf));
-                addfd (epollfd , connfd , 1);//将新的套接字加入到内核事件表里面。
+                add_epoll_in_fd(epollfd, connfd, 1);//将新的套接字加入到内核事件表里面。
                 printf ("New Connection\n");
             }
             else if (events[i].events & EPOLLIN)
@@ -306,14 +306,14 @@ int main(int argc, char *argv[])
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;
 
-                thpool_add_work (thpool, (void*)funcation ,&fds_for_new_worker);//将任务添加到工作队列中
+                thpool_add_work(thpool, (void *) server_epoll_in_thread_func, &fds_for_new_worker);//将任务添加到工作队列中
             }else if (events[i].events & EPOLLOUT)
             {
                 printf("EPOLLOUT\n");
                 struct  fd   fds_for_new_worker ;
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;
-                thpool_add_work (thpool, (void*)readfun , &fds_for_new_worker );//将任务添加到工作队列中
+                thpool_add_work(thpool, (void *) epoll_out_thread_func, &fds_for_new_worker);//将任务添加到工作队列中
             }
 
         }

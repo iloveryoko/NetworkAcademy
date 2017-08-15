@@ -86,6 +86,9 @@ void thpool_thread_do (thpool_t *tp_p){
             exit (1);
         }
 
+        int sval ;
+        sem_getvalue (tp_p->jobqueue->queueSem , &sval);   //sval表示当前正在阻塞的线程数量
+        printf("Wait semaphore value: [%d]\n", sval);
         printf("Thread [%lx] peeking job\n", pthread_self());
 
         if (thpool_keepalive)
@@ -140,7 +143,7 @@ int thpool_add_work (thpool_t *tp_p ,void * (*function_p )(void *), void *arg_p)
 
 void thpool_destory (thpool_t *tp_p){
     int    t ;
-
+    printf("thpool_destory()\n");
     thpool_keepalive = 0 ;  //让所有的线程运行的线程都退出循环
 
     for (t = 0 ; t < (tp_p->threadsN) ; t++ ){
@@ -211,6 +214,7 @@ void thpool_jobqueue_add (thpool_t *tp_p , thpool_job_t *newjob_p){
 
     int sval ;
     sem_getvalue (tp_p->jobqueue->queueSem , &sval);   //sval表示当前正在阻塞的线程数量
+    printf("Post semaphore value: [%d]\n", sval);
 
 }
 
