@@ -24,6 +24,8 @@ struct fd
 {
     int epollfd;
     int sockfd ;
+    char *ip;
+    int port;
 };
 
 //用户说明
@@ -145,7 +147,6 @@ int readfun (void *args)
     int ret = send (sockfd, user_client[sockfd].client_buf , strlen (user_client[sockfd].client_buf), 0); //发送数据
     if (ret == 0 )
     {
-
         close (sockfd);
         printf ("发送数据失败\n");
         return -1 ;
@@ -184,7 +185,32 @@ int addfd (int epollfd , int fd , int oneshot)
     return 0 ;
 }
 
+//接受数据的函数，也就是线程的回调函数
+int client_thread_func (void *args) {
+    struct sockaddr_in address;
+    int sockfd = ((struct fd *) args)->sockfd;
+    int epollfd = ((struct fd *) args)->epollfd;
+    char buf[SIZE];
+    memset(buf, '\0', SIZE);
 
+    int sock_fd = 0;
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd == -1) {
+        printf("socket create error\n");
+    }
+    addfd (epollfd , sock_fd, 0);
+
+    memset (&address , 0 , sizeof (address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = inet_addr(((struct fd *) args)->ip);
+    address.sin_port =htons( ((struct fd *) args)->port) ;
+
+    //把socket和socket地址结构联系起来
+    connect(sock_fd, (struct sockaddr*)&address, sizeof(address));
+    strcpy(user_client[sock_fd].client_buf, "123456");
+    int ret = addreadfd (epollfd , sock_fd, 1);
+    //int ret = send (sockfd, user_client[sockfd].client_buf , strlen (user_client[sockfd].client_buf), 0); //发送数据
+}
 
 int main(int argc, char *argv[])
 {
@@ -236,7 +262,18 @@ int main(int argc, char *argv[])
     }
 
     int sock_fd = 0;
+    struct epoll_event events[MAX_EVENT_NUMBER];
+    int epollfd = epoll_create (5); //创建内核事件描述符表
+    assert (epollfd != -1);
+    thpool_t  *thpool ;  //线程池
+    thpool = thpool_init (5) ; //线程池的一个初始化
+
     if (server_client == 1) {
+        // create server socket
+        // create epoll fd
+        // add socket to epoll
+        // epoll server wait
+
         memset (&address , 0 , sizeof (address));
         address.sin_family = AF_INET ;
         inet_pton (AF_INET ,ip , &address.sin_addr);
@@ -247,34 +284,31 @@ int main(int argc, char *argv[])
         assert (listen >=0);
         int reuse = 1;
         setsockopt (sock_fd , SOL_SOCKET , SO_REUSEADDR , &reuse , sizeof (reuse)); //端口重用，因为出现过端口无法绑定的错误
-        int ret = bind (sock_fd, (struct sockaddr*)&aEddress , sizeof (address));
+        int ret = bind (sock_fd, (struct sockaddr*)&address , sizeof (address));
         assert (ret >=0 );
 
         ret = listen (sock_fd , 5);
         assert (ret >=0);
+        addfd (epollfd , sock_fd, 0);
     } else if (server_client == 2) {
-        sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sock_fd == -1) {
-                printf("socket create error\n");
-        }
-        //设置一个socket地址结构client_addr,代表客户机internet地址, 端口
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = inet_addr(ip);
-        address.sin_port = htons(port);
-                //把socket和socket地址结构联系起来
-        if( connect(sock_fd, (struct sockaddr*)&address, sizeof(address)) == -1) {
-            printf("socket connect error\n");
-        }
+        // for loop {
+        //     add task to thread pool {
+        //         create client socket
+        //         create epoll fd
+        //         add socket to epoll
+        //         socket connect. send.
+        //     }
+        //
+        // }
+        // epoll server
+        //
+        struct fd  fds_client_thread ;
+        fds_client_thread.epollfd = epollfd ;
+        fds_client_thread.sockfd = 0 ;
+        fds_client_thread.ip = ip;
+        fds_client_thread.port = port;
+        client_thread_func(&fds_client_thread);
     }
-
-    struct epoll_event events[MAX_EVENT_NUMBER];
-
-    int epollfd = epoll_create (5); //创建内核事件描述符表
-    assert (epollfd != -1);
-    addfd (epollfd , sock_fd, 0);
-
-    thpool_t  *thpool ;  //线程池
-    thpool = thpool_init (5) ; //线程池的一个初始化
 
     while (1)
     {
@@ -283,6 +317,8 @@ int main(int argc, char *argv[])
         {
             printf ("poll failure\n");
             break ;
+        } else {
+            printf("poll [%d] events\n", ret);
         }
         int i =0  ;
         for ( i = 0 ; i < ret ; i++ )
