@@ -23,8 +23,9 @@ void TimerHandler(void *data)
 {
     timeval tv;
     ::gettimeofday(&tv, 0);
-    std::cout << "TimerHandler " << tv.tv_sec << std::endl;
+    std::cout << "TimerHandler " << (long long int)(data) << " " << tv.tv_sec << std::endl;
 }
+
 
 void TimerThreadFunc() {
     while (true)
@@ -38,11 +39,19 @@ void TimerThreadFunc() {
 int main(int argc, char *argv[])
 {
 
+    std::thread *timer_thread = new std::thread([=] {TimerThreadFunc();});
     Timer t(g_tm);
-    t.pInstance = NULL;
+    t.pInstance = (void *)1;
     t._callback = &TimerHandler;
     t.Start(1000,  Timer::TimerType::CIRCLE);
-    std::thread *timer_thread = new std::thread([=] {TimerThreadFunc();});
+    Timer t2(g_tm);
+    t2.pInstance = (void *)2;
+    t2._callback = &TimerHandler;
+    t2.Start(1500,  Timer::TimerType::CIRCLE);
+    Timer t3(g_tm);
+    t3.pInstance = (void *)3;
+    t3._callback = &TimerHandler;
+    t3.Start(2100,  Timer::TimerType::CIRCLE);
 
     if (timer_thread->joinable()) {
         timer_thread->join();

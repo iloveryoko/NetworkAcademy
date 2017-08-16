@@ -29,7 +29,7 @@ class TimerManager
         unsigned long long time;
         Timer* timer;
     };
-    std::vector<HeapEntry> heap_;
+    std::vector<HeapEntry*> heap_;
 };
 
 #endif //PROJECT_TIMERMANAGER_H

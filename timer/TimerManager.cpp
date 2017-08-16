@@ -5,11 +5,15 @@
 #include "TimerManager.h"
 //////////////////////////////////////////////////////////////////////////
 // TimerManager
+#include "stdio.h"
 
 void TimerManager::AddTimer(Timer* timer)
 {
+    printf("AddTimer: [%x], interval_: [%d], expires_[%llu]\n", timer, timer->interval_, timer->expires_ / 1000);
     timer->heapIndex_ = heap_.size();
-    HeapEntry entry = { timer->expires_, timer };
+    HeapEntry *entry = new HeapEntry();
+    entry->time = timer->expires_;
+    entry->timer = timer;
     heap_.push_back(entry);
     UpHeap(heap_.size() - 1);
 }
@@ -21,14 +25,16 @@ void TimerManager::RemoveTimer(Timer* timer)
     {
         if (index == heap_.size() - 1)
         {
+            HeapEntry *entry = heap_.back();
             heap_.pop_back();
+            delete entry;
         }
         else
         {
             SwapHeap(index, heap_.size() - 1);
             heap_.pop_back();
             size_t parent = (index - 1) / 2;
-            if (index > 0 && heap_[index].time < heap_[parent].time)
+            if (index > 0 && heap_[index]->time < heap_[parent]->time)
                 UpHeap(index);
             else
                 DownHeap(index);
@@ -40,9 +46,9 @@ void TimerManager::DetectTimers()
 {
     unsigned long long now = GetCurrentMillisecs();
 
-    while (!heap_.empty() && heap_[0].time <= now)
+    while (!heap_.empty() && heap_[0]->time <= now)
     {
-        Timer* timer = heap_[0].timer;
+        Timer* timer = heap_[0]->timer;
         RemoveTimer(timer);
         timer->OnTimer(now);
     }
@@ -50,8 +56,14 @@ void TimerManager::DetectTimers()
 
 void TimerManager::UpHeap(size_t index)
 {
-    size_t parent = (index - 1) / 2;
-    while (index > 0 && heap_[index].time < heap_[parent].time)
+    printf("UpHeap index [%d]\n", index);
+    size_t parent = 0;
+    if (index < 1) {
+        parent = 0;
+    } else {
+        (index - 1) / 2;
+    }
+    while (index > 0 && heap_[index]->time < heap_[parent]->time)
     {
         SwapHeap(index, parent);
         index = parent;
@@ -61,12 +73,13 @@ void TimerManager::UpHeap(size_t index)
 
 void TimerManager::DownHeap(size_t index)
 {
+    printf("DownHeap index [%d]\n", index);
     size_t child = index * 2 + 1;
     while (child < heap_.size())
     {
-        size_t minChild = (child + 1 == heap_.size() || heap_[child].time < heap_[child + 1].time)
+        size_t minChild = (child + 1 == heap_.size() || heap_[child]->time < heap_[child + 1]->time)
                           ? child : child + 1;
-        if (heap_[index].time < heap_[minChild].time)
+        if (heap_[index]->time < heap_[minChild]->time)
             break;
         SwapHeap(index, minChild);
         index = minChild;
@@ -76,11 +89,11 @@ void TimerManager::DownHeap(size_t index)
 
 void TimerManager::SwapHeap(size_t index1, size_t index2)
 {
-    HeapEntry tmp = heap_[index1];
+    HeapEntry *tmp = heap_[index1];
     heap_[index1] = heap_[index2];
     heap_[index2] = tmp;
-    heap_[index1].timer->heapIndex_ = index1;
-    heap_[index2].timer->heapIndex_ = index2;
+    heap_[index1]->timer->heapIndex_ = index1;
+    heap_[index2]->timer->heapIndex_ = index2;
 }
 
 
