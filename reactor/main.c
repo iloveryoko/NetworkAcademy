@@ -20,7 +20,7 @@
 #define MAX     10
 
 //从主线程向工作线程数据结构
-struct fd
+struct thread_args
 {
     int epollfd;
     int sockfd ;
@@ -80,8 +80,8 @@ int groupchat (int epollfd , int sockfd , char *buf)
 //接受数据的函数，也就是线程的回调函数
 int server_epoll_in_thread_func(void *args)
 {
-    int sockfd = ((struct fd*)args)->sockfd ;
-    int epollfd =((struct fd*)args)->epollfd;
+    int sockfd = ((struct thread_args*)args)->sockfd ;
+    int epollfd =((struct thread_args*)args)->epollfd;
     char buf[SIZE];
     memset (buf , '\0', SIZE);
 
@@ -139,8 +139,8 @@ int reset_read_oneshot (int epollfd , int sockfd)
 //发送读的数据
 int epoll_out_thread_func(void *args)
 {
-    int sockfd = ((struct fd *)args)->sockfd ;
-    int epollfd= ((struct fd*)args)->epollfd ;
+    int sockfd = ((struct thread_args *)args)->sockfd ;
+    int epollfd= ((struct thread_args*)args)->epollfd ;
 
     int ret = send (sockfd, user_client[sockfd].client_buf , strlen (user_client[sockfd].client_buf), 0); //发送数据
     if (ret == 0 )
@@ -302,7 +302,7 @@ int main(int argc, char *argv[])
             else if (events[i].events & EPOLLIN)
             {
                 printf("EPOLLIN\n");
-                struct fd    fds_for_new_worker ;
+                struct thread_args    fds_for_new_worker ;
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;
 
@@ -310,7 +310,7 @@ int main(int argc, char *argv[])
             }else if (events[i].events & EPOLLOUT)
             {
                 printf("EPOLLOUT\n");
-                struct  fd   fds_for_new_worker ;
+                struct  thread_args   fds_for_new_worker ;
                 fds_for_new_worker.epollfd = epollfd ;
                 fds_for_new_worker.sockfd = sockfd ;
                 thpool_add_work(thpool, (void *) epoll_out_thread_func, &fds_for_new_worker);//将任务添加到工作队列中
