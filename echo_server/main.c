@@ -21,6 +21,7 @@
 #define MAX_CLIENT_NUMBER     1000
 #define LOOP_COUNT 10000
 int client_send_count = 0;
+thpool_t  *thpool ;  //线程池
 
 //从主线程向工作线程数据结构
 struct thread_args
@@ -29,6 +30,7 @@ struct thread_args
     int sockfd ;
     char *ip;
     int port;
+    int data;
 };
 
 //用户说明
@@ -152,7 +154,7 @@ int client_epoll_in_thread_func(void *args) {
 
 
     }
-    printf ("End thread receive  data on fd :[%d]\n", sockfd);
+    printf ("End thread receive data on fd :[%d]\n", sockfd);
 }
 
 //接受数据的函数，也就是线程的回调函数
@@ -268,7 +270,7 @@ int client_epoll_out_thread_func(void *args)
             return -1 ;
         }
     } else if (ret > 0) {
-        printf("FD [%d] sent [%d] bytes\n", sockfd, ret);
+        printf("FD [%d] sent [%d] bytes: [%s]\n", sockfd, ret, user_client[sockfd].client_buf);
         memset (&user_client[sockfd].client_buf , '\0', sizeof (user_client[sockfd].client_buf));
         mod_fd_epoll_out2in(epollfd, sockfd);//重新设置文件描述符
     }
@@ -299,7 +301,7 @@ int server_epoll_out_thread_func(void *args)
         printf("FD [%d] sent [%d] bytes\n", sockfd, ret);
         printf("FD [%d] epoll out to in\n", sockfd);
         memset (&user_client[sockfd].client_buf , '\0', sizeof (user_client[sockfd].client_buf));
-        mod_fd_epoll_out2in(epollfd, sockfd);//重新设置文件描述符
+        //mod_fd_epoll_out2in(epollfd, sockfd);//重新设置文件描述符
     }
     return 0;
 }
@@ -333,11 +335,46 @@ int add_epoll_in_fd(int epollfd, int fd, int oneshot)
     return 0 ;
 }
 
+int connect_thread_func (void *args) {
+    struct sockaddr_in address;
+    memset (&address , 0 , sizeof (address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = inet_addr(((struct thread_args *) args)->ip);
+    address.sin_port =htons( ((struct thread_args *) args)->port) ;
+    int sock_fd = ((struct thread_args *) args)->sockfd;
+    int epollfd = ((struct thread_args *) args)->epollfd;
+
+    int ret = 0;
+    while ((ret = connect(sock_fd, (struct sockaddr*)&address, sizeof(address))) != 0 ){
+        if (errno == EINPROGRESS) {
+            //usleep(50);
+            //continue;
+            char err_msg[256] = {0};
+            sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
+            perror(err_msg);
+            break;
+        } else {
+            char err_msg[256] = {0};
+            sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
+            perror(err_msg);
+            break;
+        }
+        //continue;
+    }
+    //if (ret == 0) {
+    printf("FD [%d] Connect success\n", sock_fd);
+    sprintf(user_client[sock_fd].client_buf, "%06d", ((struct thread_args *) args)->data);
+    ret = add_epoll_out_fd(epollfd, sock_fd, 1);
+    //}
+
+}
+
+
 //接受数据的函数，也就是线程的回调函数
 int client_thread_func (void *args) {
     struct sockaddr_in address;
-    int sockfd = ((struct thread_args *) args)->sockfd;
-    int epollfd = ((struct thread_args *) args)->epollfd;
+    //int sockfd = ((struct thread_args *) args)->sockfd;
+    //int epollfd = ((struct thread_args *) args)->epollfd;
     char buf[SIZE];
     memset(buf, '\0', SIZE);
 
@@ -347,37 +384,57 @@ int client_thread_func (void *args) {
         if (sock_fd == -1) {
             printf("socket create error\n");
         }
-        printf("FD [%d] socket created, add to epoll\n", sock_fd);
+
         //add_epoll_in_fd(epollfd, sock_fd, 0);
 
-        memset (&address , 0 , sizeof (address));
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = inet_addr(((struct thread_args *) args)->ip);
-        address.sin_port =htons( ((struct thread_args *) args)->port) ;
+        if (sock_fd >= MAX_CLIENT_NUMBER) {
+            printf("Client reach limit, hold on\n");
+            close(sock_fd);
+            usleep(1000);
+            i--;
+            continue;
+        }
+        printf("FD [%d] socket created, add to thread pool\n", sock_fd);
+
+//        memset (&address , 0 , sizeof (address));
+//        address.sin_family = AF_INET;
+//        address.sin_addr.s_addr = inet_addr(((struct thread_args *) args)->ip);
+//        address.sin_port =htons( ((struct thread_args *) args)->port) ;
+
+        int epollfd = ((struct thread_args *) args)->epollfd;
+        struct thread_args  *fds_for_new_worker ;
+        fds_for_new_worker = (struct thread_args *) calloc(1, sizeof(struct thread_args));
+        fds_for_new_worker->epollfd = ((struct thread_args *) args)->epollfd ;
+        fds_for_new_worker->sockfd = sock_fd ;
+        fds_for_new_worker->ip = ((struct thread_args *) args)->ip ;
+        fds_for_new_worker->port = ((struct thread_args *) args)->port ;
+        fds_for_new_worker->data = i;
+
+        thpool_add_work(thpool, (void *) connect_thread_func, fds_for_new_worker);//将任务添加到工作队列中
 
         //把socket和socket地址结构联系起来
-        int ret = 0;
-        while ((ret = connect(sock_fd, (struct sockaddr*)&address, sizeof(address))) != 0 ){
-            if (errno == EINPROGRESS) {
-                //usleep(50);
-                //continue;
-                char err_msg[256] = {0};
-                sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
-                perror(err_msg);
-                break;
-            } else {
-                char err_msg[256] = {0};
-                sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
-                perror(err_msg);
-                break;
-            }
-            //continue;
-        }
-        //if (ret == 0) {
-            printf("FD [%d] Connect success\n", sock_fd);
-            strcpy(user_client[sock_fd].client_buf, "123456");
-            ret = add_epoll_out_fd(epollfd, sock_fd, 1);
-        //}
+//        int ret = 0;
+//        while ((ret = connect(sock_fd, (struct sockaddr*)&address, sizeof(address))) != 0 ){
+//            if (errno == EINPROGRESS) {
+//                //usleep(50);
+//                //continue;
+//                char err_msg[256] = {0};
+//                sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
+//                perror(err_msg);
+//                break;
+//            } else {
+//                char err_msg[256] = {0};
+//                sprintf(err_msg, "FD [%d] client_thread_func():connect() perror", sock_fd);
+//                perror(err_msg);
+//                break;
+//            }
+//            //continue;
+//        }
+//        //if (ret == 0) {
+//            printf("FD [%d] Connect success\n", sock_fd);
+//            strcpy(user_client[sock_fd].client_buf, "123456");
+//            ret = add_epoll_out_fd(epollfd, sock_fd, 1);
+//        //}
     }
 }
 
@@ -434,7 +491,6 @@ int main(int argc, char *argv[])
     struct epoll_event events[MAX_EVENT_NUMBER];
     int epollfd = epoll_create (5); //创建内核事件描述符表
     assert (epollfd != -1);
-    thpool_t  *thpool ;  //线程池
     thpool = thpool_init (5) ; //线程池的一个初始化
 
     if (server_client == 1) {
